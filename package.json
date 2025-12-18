@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "INSTRUCTION.md"
+    "INSTRUCTION.md",
+    "INSTRUCTION_ja.md"
   ],
   "scripts": {
     "build": "tsc"
