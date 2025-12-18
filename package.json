@@ -1,0 +1,23 @@
+{
+  "name": "tobira-kagi",
+  "version": "0.1.0",
+  "description": "AI-native authentication middleware for Tobira",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "INSTRUCTION.md"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "hono": "^4.0.0",
+    "@cloudflare/workers-types": "^4.20240101.0"
+  }
+}
