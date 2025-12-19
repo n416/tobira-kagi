@@ -2,51 +2,54 @@
 
 ## AI (Cursor/Windsurf) への指示
 `tobira-kagi` ライブラリを使用して認証機能を実装してください。
+Cloudflare Workersでは環境変数がリクエストコンテキスト(`c.env`)にあるため、以下のパターンを推奨します。
 
-### 1. 環境変数の設定 (Configuration)
-まず、認証に必要な環境変数を設定してください。
-
-**ローカル開発用 (.dev.vars):**
-`.dev.vars` ファイルを作成（または編集）し、以下の行を追加してください。
-**`AUTH_URL` の実際の値（TobiraのURL）は必ずユーザーに確認してください。**
+### 1. 環境変数の設定
+`.dev.vars` (ローカル) または `wrangler.toml` (本番) に以下を設定してください。
+Service Binding (`TOBIRA`) の利用を推奨します。
 
 ```
 AUTH_URL="https://tobira.your-domain.com"
 ```
 
-**wrangler.toml の設定:**
-Service Binding を有効にするため、以下を追記してください。
-
-```toml
-[[services]]
-binding = "TOBIRA"
-service = "tobira" # Tobira認証基盤のワーカー名
-```
-
-### 2. 実装 (Implementation)
-`src/index.ts` にて:
+### 2. 実装 (src/index.ts)
+以下の「ヘルパー関数パターン」を使用して実装してください。
 
 ```typescript
 import { Hono } from 'hono'
 import { Kagi } from 'tobira-kagi'
 
-// Service Binding を含む Bindings を定義
 type Bindings = {
   AUTH_URL: string
   TOBIRA: Fetcher
+  APP_ID?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-const kagi = new Kagi({
+// Helper to initialize Kagi with env
+const getKagi = (c: any) => new Kagi({
   authUrl: c.env.AUTH_URL,
-  appId: 'YOUR_APP_ID', // ユーザー指定のAppIDを使用
+  appId: c.env.APP_ID || 'my-app',
   fetcher: c.env.TOBIRA
 })
 
-// 認証ルートのマウント
-app.route('/auth', kagi.handlers())
+// 1. Mount Auth Routes (Forwarding pattern)
+app.all('/auth/*', (c) => {
+  return getKagi(c).handlers().fetch(c.req.raw, c.env, c.executionCtx)
+})
 
-// ルートの保護
-app.use('/*', kagi.guard())
+// 2. Protect Routes
+app.use('/*', async (c, next) => {
+  if (c.req.path.startsWith('/auth')) return next()
+  return getKagi(c).guard()(c, next)
+})
+
+// 3. App Logic
+app.get('/', (c) => {
+  const user = c.get('user')
+  return c.text(`Hello ${user.email}`)
+})
+export default app
 ```
+

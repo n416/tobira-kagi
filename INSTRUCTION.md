@@ -1,49 +1,50 @@
 # Tobira Authentication Integration Guide
 
-## Instructions for AI (Cursor/Windsurf)
-Use the `tobira-kagi` library to implement authentication.
+## Instructions for AI
+Implement authentication using `tobira-kagi`.
+Since Cloudflare Workers access environment variables via request context (`c.env`), use the following pattern.
 
 ### 1. Configuration
-First, configure the environment variables.
+Set `AUTH_URL` in `.dev.vars` and enable Service Binding `TOBIRA` in `wrangler.toml`.
 
-**For Local Development (.dev.vars):**
-Create or update `.dev.vars` with the following. Ask the user for the actual `AUTH_URL`.
-```
-AUTH_URL="https://tobira.your-domain.com"
-```
-
-**For wrangler.toml:**
-Add the Service Binding configuration.
-```toml
-[[services]]
-binding = "TOBIRA"
-service = "tobira" # The worker name of the Tobira IDP
-```
-
-### 2. Implementation
-In `src/index.ts`:
+### 2. Implementation (src/index.ts)
+Use the helper function pattern to inject environment variables.
 
 ```typescript
 import { Hono } from 'hono'
 import { Kagi } from 'tobira-kagi'
 
-// Define Bindings with Service Binding
 type Bindings = {
   AUTH_URL: string
   TOBIRA: Fetcher
+  APP_ID?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-const kagi = new Kagi({
+// Helper to initialize Kagi with env
+const getKagi = (c: any) => new Kagi({
   authUrl: c.env.AUTH_URL,
-  appId: 'YOUR_APP_ID', // Ask user for App ID
+  appId: c.env.APP_ID || 'my-app',
   fetcher: c.env.TOBIRA
 })
 
-// Mount Auth Routes
-app.route('/auth', kagi.handlers())
+// 1. Mount Auth Routes (Forwarding pattern)
+app.all('/auth/*', (c) => {
+  return getKagi(c).handlers().fetch(c.req.raw, c.env, c.executionCtx)
+})
 
-// Protect Routes
-app.use('/*', kagi.guard())
+// 2. Protect Routes
+app.use('/*', async (c, next) => {
+  if (c.req.path.startsWith('/auth')) return next()
+  return getKagi(c).guard()(c, next)
+})
+
+// 3. App Logic
+app.get('/', (c) => {
+  const user = c.get('user')
+  return c.text(`Hello ${user.email}`)
+})
+export default app
 ```
+
