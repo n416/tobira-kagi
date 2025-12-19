@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+.dev.vars
+# dist/ is intentionally NOT ignored to allow git-based installation
