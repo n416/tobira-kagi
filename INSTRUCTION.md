@@ -1,34 +1,50 @@
-# AI Instruction for tobira-kagi Implementation
+# ⚠️ LANGUAGE CHECK
+
+**IF THE USER SPEAKS JAPANESE, STOP READING THIS FILE.**
+**PLEASE READ `INSTRUCTION_ja.md` INSTEAD.**
+
+---
+
+# AI Instruction for tobira-kagi
+
+(If the user is English-speaking, proceed below)
 
 You are an expert implementation assistant for **tobira-kagi**.
-**Do NOT implement immediately.** First, you must analyze the project and **ASK the user** for confirmation.
+**Do NOT implement immediately.** Follow these steps to ensure a bug-free setup.
 
-## 🚨 Phase 1: Analysis & Proposal (The Interview)
+## 🚨 Phase 1: Analysis & Proposal
 
-1.  **Analyze**: Check the file structure (`package.json`, `index.html`, `wrangler.toml`, etc.).
-2.  **Identify**: Which of the following scenarios fits best?
+1.  **Analyze**: Check project structure.
+2.  **Identify**: Scenario A (Greenfield), B (Pages Migration), or C (Integration).
+    * For Scenario B, **strongly propose** migrating to Cloudflare Pages.
+3.  **Confirm**: Get user approval.
 
-    * **Scenario A: Greenfield** (New Project)
-        * *Signs*: Empty folder or minimal setup.
-        * *Plan*: Create a standard Hono + Cloudflare Workers app.
-    
-    * **Scenario B: Migration** (Static Site on Legacy Hosting)
-        * *Signs*: User has `index.html` / CSS files but no `src/index.ts` or `wrangler.toml`.
-        * *Plan*: Migrate to **Cloudflare Pages** (Functions).
-        * *Pitch*: "I see static files. I recommend moving them to Cloudflare Pages for free SSL and better auth. Shall we do this?"
-    
-    * **Scenario C: Integration** (Existing Hono App)
-        * *Signs*: Existing `Hono` code in `src/`.
-        * *Plan*: Add the middleware code to the existing app.
+---
 
-3.  **Action**: **Present your analysis to the user and ask for approval.**
-    * *Example*: "It looks like you have a static site. I recommend Scenario B (Cloudflare Pages). Is that correct?"
+## 🛠️ Phase 2: Configuration (Critical)
 
-## 🛣️ Phase 2: Implementation (After User Approval)
+Create `wrangler.toml` to handle Environment Variables and Service Bindings explicitly.
 
-Once the user confirms the scenario, generate the code below.
+```toml
+name = "my-app-name"
+pages_build_output_dir = "dist" # Only for Scenario B
 
-### Code for Scenario A & C (Workers/Hono)
+[vars]
+AUTH_URL = "https://tobiras.work"
+
+[[services]]
+binding = "TOBIRA"
+service = "tobira"
+```
+
+---
+
+## 💻 Phase 3: Implementation (With Path Rewriting)
+
+The Tobira IdP listens on root paths (e.g., `/login`).
+Since tobira-kagi is mounted at `/auth/*`, **you MUST strip the `/auth` prefix** when delegating requests.
+
+### Code for Scenario A & C (Workers)
 
 ```typescript
 import { Hono } from 'hono'
@@ -38,12 +54,19 @@ const app = new Hono()
 
 const getKagi = (c: any) => new Kagi({
   authUrl: c.env.AUTH_URL,
-  appId: 'YOUR_APP_ID', // Replace with user's App ID
+  appId: 'YOUR_APP_ID',
   fetcher: c.env.TOBIRA
 })
 
-app.all('/auth/*', (c) => getKagi(c).handlers().fetch(c.req.raw, c.env, c.executionCtx))
+// 1. Auth Routes (Rewrite Path: /auth/login -> /login)
+app.all('/auth/*', (c) => {
+  const url = new URL(c.req.url)
+  url.pathname = url.pathname.replace(/^\/auth/, '')
+  const newReq = new Request(url.toString(), c.req.raw)
+  return getKagi(c).handlers().fetch(newReq, c.env, c.executionCtx)
+})
 
+// 2. Route Guard
 app.use('/*', async (c, next) => {
   if (c.req.path.startsWith('/auth')) return next()
   return getKagi(c).guard()(c, next)
@@ -54,8 +77,6 @@ export default app
 
 ### Code for Scenario B (Pages / Static Site)
 
-Use `env.ASSETS` to serve the static files after authentication.
-
 ```typescript
 // _worker.js
 import { Hono } from 'hono'
@@ -64,6 +85,15 @@ import { Kagi } from 'tobira-kagi'
 const app = new Hono()
 // ... (Init Kagi as above) ...
 
+// 1. Auth Routes (Rewrite required)
+app.all('/auth/*', (c) => {
+  const url = new URL(c.req.url)
+  url.pathname = url.pathname.replace(/^\/auth/, '')
+  const newReq = new Request(url.toString(), c.req.raw)
+  return getKagi(c).handlers().fetch(newReq, c.env, c.executionCtx)
+})
+
+// 2. Guard & Static Assets
 app.use('/*', async (c, next) => {
   if (c.req.path.startsWith('/auth')) return next()
   
