@@ -1,24 +1,31 @@
 # tobira-kagi 🗝️
 
 > **認証基盤「Tobira」専用の「鍵」ミドルウェア**
-> **OIDC？そんな面倒なことはしません。AIに任せて、あなたは寝ていてください。**
+> **Cloudflare Workers も Pages (静的サイト) も、これ一つで守ります。**
 
-**tobira-kagi** は、**[Tobira (IdP)](https://github.com/n416/tobira)** を Hono アプリケーションに組み込むための公式ミドルウェアです。
+[![npm version](https://badge.fury.io/js/tobira-kagi.svg)](https://badge.fury.io/js/tobira-kagi)
 
-## ⚡ Tobira の哲学
+## ⚠️ 動作環境
 
-- **🚫 脱・OIDC**: 複雑な仕様書は捨てました。シンプルなJSON交換だけで認証します。
-- **🤖 AIネイティブ**: AI (Cursor/Windsurf) に指示するためだけに設計されています。
-- **🚀 爆速 Service Binding**: Cloudflare Workers 間の内部通信により、通信ラグゼロで認証チェックを行います。
+**サーバーサイド (Edge) で動作するミドルウェアです。**
+
+* ✅ **対応**: Cloudflare Workers, Cloudflare Pages (Functions / `_worker.js`)
+* ❌ **非対応**: 一般的なレンタルサーバー (Apache/Nginxのみの環境), ブラウザ単体のJS
 
 ---
 
-## 🚪 Step 0: 準備 (扉を設置する)
+## ⚡ 特徴
 
-鍵 (ライブラリ) を使う前に、扉 (Tobira) を用意し、通行証 (App ID) を発行する必要があります。
+- **🛡️ あらゆるアプリに対応**: **API** (Workers) だけでなく、**静的サイト** (Pages) にも認証をかけられます。
+- **🤖 AIネイティブ**: 付属の指示書が、レンタルサーバーからの移行手順もAIに教えます。
+- **🚀 爆速**: Cloudflare **Service Bindings** による内部通信で認証チェック。
+
+---
+
+## 🚪 Step 0: 準備
 
 1. **Tobiraのデプロイ**: 👉 **[Tobira 本体 (サーバー) のリポジトリへ](https://github.com/n416/tobira)**
-2. **App IDの取得**: Tobira管理画面でアプリを登録し、**アプリID** をコピーしてください。
+2. **App IDの取得**: Tobira管理画面でアプリを登録し、IDをコピーしてください。
 
 ---
 
@@ -32,48 +39,70 @@ npm install git+https://github.com/n416/tobira-kagi.git
 
 ## 🚀 使い方 (AI流)
 
-**コードを書く必要はありません。**
+**コードは書きません。AIに「診断」させます。**
 
 1.  ライブラリをインストールします。
 2.  **AI エディタに指示** します。
 
-> **「`node_modules/tobira-kagi/INSTRUCTION_ja.md` を読んで。その手順に従って `src/index.ts` など対象アプリのエンドポイントに合わせてファイルを生成あるいはマージ、認証機能を実装してください。私のアプリIDは 'YOUR_APP_ID' です。」**
+> **「`node_modules/tobira-kagi/INSTRUCTION_ja.md` を読んでください。私のプロジェクトを分析し、最適な導入手順を『提案』してください。まだコードは書かないでください。アプリIDは 'YOUR_APP_ID' です。」**
 
-*(※ 'YOUR_APP_ID' は Step 0 で取得したIDに書き換えてください)*
-
-以上です。AI が内部の指示書を読み込み、既存コードとの整合性を取りながら実装を行います。
+AI はファイルをチェックし、**「HTMLファイルがありますね。Cloudflare Pages で認証付きサイトにしますか？」** とあなたに確認します。
+**「はい」** と答えれば、実装が始まります。
 
 ---
 
-## 👨‍💻 使い方 (リファレンス / 手動)
+## 👨‍💻 使い方 (手動リファレンス)
 
-手動で実装する場合、またはAIの生成結果を確認したい場合は、以下のコードを参考にしてください。
+### パターン A: Cloudflare Workers (API / アプリ)
+
+通常の Hono アプリケーションの場合です。
 
 ```typescript
 import { Hono } from 'hono'
 import { Kagi } from 'tobira-kagi'
 
-type Bindings = {
-  AUTH_URL: string
-  TOBIRA: Fetcher
-}
+const app = new Hono()
 
-const app = new Hono<{ Bindings: Bindings }>()
-
-// 初期化ヘルパー (環境変数を渡すため)
+// 初期化
 const getKagi = (c: any) => new Kagi({
   authUrl: c.env.AUTH_URL,
   appId: 'YOUR_APP_ID',
   fetcher: c.env.TOBIRA
 })
 
-// 1. 認証ルート (/auth/*) を委譲
+// 1. 認証ルート (/auth/*) の委譲
 app.all('/auth/*', (c) => getKagi(c).handlers().fetch(c.req.raw, c.env, c.executionCtx))
 
-// 2. ガード設定 (これより下のルートは保護されます)
+// 2. ガード設定
 app.use('/*', async (c, next) => {
   if (c.req.path.startsWith('/auth')) return next()
   return getKagi(c).guard()(c, next)
+})
+
+export default app
+```
+
+### パターン B: Cloudflare Pages (静的サイトの保護)
+
+レンタルサーバーから移行したHTMLファイルを保護する場合、`env.ASSETS` を使います。
+
+```typescript
+// _worker.js または functions/[[path]].ts
+import { Hono } from 'hono'
+import { Kagi } from 'tobira-kagi'
+
+const app = new Hono()
+// ... (初期化は上と同じ) ...
+
+app.use('/*', async (c, next) => {
+  if (c.req.path.startsWith('/auth')) return next()
+  
+  // ガード実行。未認証ならリダイレクトが返る
+  const response = await getKagi(c).guard()(c, next)
+  if (response) return response
+
+  // 認証OKなら、Pagesにアップロードされた静的ファイル(HTML等)を配信
+  return c.env.ASSETS.fetch(c.req.raw)
 })
 
 export default app

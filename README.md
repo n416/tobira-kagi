@@ -1,25 +1,31 @@
 # tobira-kagi 🗝️
 
 > **The "Key" for the Tobira Identity Provider.**
-> **Forget OIDC. Forget Complexity. Just Auth.**
+> **Secure your Workers & Pages instantly.**
 
-**tobira-kagi** is the official middleware for **[Tobira](https://github.com/n416/tobira)**.
-It provides a seamless, AI-native authentication layer for Hono applications running on Cloudflare Workers.
+[![npm version](https://badge.fury.io/js/tobira-kagi.svg)](https://badge.fury.io/js/tobira-kagi)
 
-## ⚡ Why Tobira?
+## ⚠️ Requirements
 
-- **🚫 Anti-OIDC**: We don't follow complex standards. We simply exchange JSON.
-- **🤖 AI-Native**: Designed specifically for AI agents (Cursor, Windsurf). Just prompt it.
-- **🚀 Zero Latency**: Uses Cloudflare **Service Bindings** for instant, internal authentication checks.
+**Server-Side Middleware Only.**
+
+* ✅ **Supported**: Cloudflare Workers, Cloudflare Pages (Functions / `_worker.js`)
+* ❌ **Not Supported**: Standard Shared Hosting (Apache/Nginx only), Client-side JS
 
 ---
 
-## 🚪 Step 0: Preparation (The Door)
+## ⚡ Features
 
-Before installing this key, you must setup the door (Tobira IdP) and register your app.
+- **🛡️ Any App**: Protects both **APIs** (Workers) and **Static Sites** (Pages).
+- **🤖 AI-Native**: The included instructions guide AI to migrate your legacy site.
+- **🚀 Zero Latency**: Uses Cloudflare **Service Bindings**.
+
+---
+
+## 🚪 Step 0: Preparation
 
 1. **Deploy Tobira**: 👉 **[Tobira Main Repository](https://github.com/n416/tobira)**
-2. **Get App ID**: Register your app in the Tobira dashboard and copy the **App ID**.
+2. **Get App ID**: Register your app in the Tobira dashboard.
 
 ---
 
@@ -33,48 +39,72 @@ npm install git+https://github.com/n416/tobira-kagi.git
 
 ## 🚀 Usage (The AI Way)
 
-**Zero manual coding required.**
+**Don't write code. Just prompt.**
 
-1.  **Install** the library.
-2.  **Open your AI Editor** (Cursor, Windsurf) and give this prompt:
+1.  Install the library.
+2.  Ask your AI Editor (Cursor, Windsurf):
 
-> **"Read `node_modules/tobira-kagi/INSTRUCTION.md`. Follow the instructions to generate or merge code into `src/index.ts` (or appropriate files) matching the app's endpoints, and implement the authentication flow. My App ID is 'YOUR_APP_ID'."**
+> **"Read `node_modules/tobira-kagi/INSTRUCTION.md`. Analyze my project structure and PROPOSE the best integration strategy. Do not write code yet. My App ID is 'YOUR_APP_ID'."**
 
-*(Replace 'YOUR_APP_ID' with the ID you got in Step 0)*
+The AI will diagnose your files and ask:
+*"I see HTML files. Should I set up Cloudflare Pages?"*
 
-That's it. The AI will read the internal instructions, create or update the file, setup the bindings, and apply the middleware appropriately for your app structure.
+Simply answer **"Yes"**, and then it will generate the code.
 
 ---
 
-## 👨‍💻 Usage (Reference / Manual)
+## 👨‍💻 Usage (Manual Reference)
 
-If you need to implement it manually, use this pattern:
+### Pattern A: Cloudflare Workers (API / App)
+
+For standard Hono apps.
 
 ```typescript
 import { Hono } from 'hono'
 import { Kagi } from 'tobira-kagi'
 
-type Bindings = {
-  AUTH_URL: string
-  TOBIRA: Fetcher
-}
+const app = new Hono()
 
-const app = new Hono<{ Bindings: Bindings }>()
-
-// Helper to initialize Kagi with env
+// Init
 const getKagi = (c: any) => new Kagi({
   authUrl: c.env.AUTH_URL,
   appId: 'YOUR_APP_ID',
   fetcher: c.env.TOBIRA
 })
 
-// 1. Mount Routes
+// 1. Delegate Auth Routes
 app.all('/auth/*', (c) => getKagi(c).handlers().fetch(c.req.raw, c.env, c.executionCtx))
 
-// 2. Protect Routes
+// 2. Guard Routes
 app.use('/*', async (c, next) => {
   if (c.req.path.startsWith('/auth')) return next()
   return getKagi(c).guard()(c, next)
+})
+
+export default app
+```
+
+### Pattern B: Cloudflare Pages (Static Site)
+
+To protect HTML files (migrate from rental servers), use `env.ASSETS`.
+
+```typescript
+// _worker.js or functions/[[path]].ts
+import { Hono } from 'hono'
+import { Kagi } from 'tobira-kagi'
+
+const app = new Hono()
+// ... (Init Kagi as above) ...
+
+app.use('/*', async (c, next) => {
+  if (c.req.path.startsWith('/auth')) return next()
+  
+  // Guard: Redirects if not logged in
+  const response = await getKagi(c).guard()(c, next)
+  if (response) return response
+
+  // If Auth OK: Serve static files (HTML/CSS)
+  return c.env.ASSETS.fetch(c.req.raw)
 })
 
 export default app
