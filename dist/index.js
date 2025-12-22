@@ -110,5 +110,53 @@ class Kagi {
         }
         return await res.json();
     }
+    /**
+     * Attempts to refresh the access token using the refresh token cookie.
+     * Returns an array of 'Set-Cookie' header strings if successful, or null if failed.
+     * This is useful for sliding sessions in environments like Cloudflare Pages.
+     */
+    async refresh(c) {
+        const refreshToken = (0, cookie_1.getCookie)(c, 'tobira_refresh_token');
+        if (!refreshToken)
+            return null;
+        try {
+            const newTokens = await this.callTobira('/api/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken })
+            });
+            if (!newTokens.access_token)
+                return null;
+            const opts = { httpOnly: true, secure: true, path: '/', sameSite: 'Lax' };
+            const maxAge = newTokens.expires_in;
+            // 1. Update Hono Context (for standard usage)
+            (0, cookie_1.setCookie)(c, 'tobira_access_token', newTokens.access_token, { ...opts, maxAge });
+            if (newTokens.refresh_token) {
+                (0, cookie_1.setCookie)(c, 'tobira_refresh_token', newTokens.refresh_token, opts);
+            }
+            // 2. Generate Cookie Strings (for manual Response injection)
+            const serialize = (name, val, opt) => {
+                let str = `${name}=${val}; Path=${opt.path}; SameSite=${opt.sameSite}`;
+                if (opt.secure)
+                    str += '; Secure';
+                if (opt.httpOnly)
+                    str += '; HttpOnly';
+                if (opt.maxAge)
+                    str += `; Max-Age=${opt.maxAge}`;
+                return str;
+            };
+            const cookies = [
+                serialize('tobira_access_token', newTokens.access_token, { ...opts, maxAge }),
+            ];
+            if (newTokens.refresh_token) {
+                cookies.push(serialize('tobira_refresh_token', newTokens.refresh_token, opts));
+            }
+            return cookies;
+        }
+        catch (e) {
+            // Refresh failed (e.g. expired or network error), just ignore.
+            return null;
+        }
+    }
 }
 exports.Kagi = Kagi;

@@ -23,4 +23,10 @@ export declare class Kagi {
         error: string;
     }, 401, "json">) | undefined>;
     private callTobira;
+    /**
+     * Attempts to refresh the access token using the refresh token cookie.
+     * Returns an array of 'Set-Cookie' header strings if successful, or null if failed.
+     * This is useful for sliding sessions in environments like Cloudflare Pages.
+     */
+    refresh(c: Context): Promise<string[] | null>;
 }
