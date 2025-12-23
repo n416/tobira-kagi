@@ -118,20 +118,27 @@ export class Kagi {
     }
   }
 
-  private async callTobira(path: string, init: RequestInit) {
-    const fetcher = this.config.fetcher || fetch
+  private async callTobira(path: string, init: RequestInit): Promise<any> {
+    const fetcher = this.config.fetcher
+
+    let res: Response
     
-    // Service Binding用のダミーURL構築
-    const url = (typeof (fetcher as any).fetch === 'function') 
-        ? `http://tobira-internal${path}` 
-        : `${this.config.authUrl}${path}`
-    
-    // @ts-ignore
-    const res = await fetcher.fetch(url, init as any)
+    if (fetcher && typeof (fetcher as any).fetch === 'function') {
+        // Service Binding (Worker to Worker)
+        const url = `http://tobira-internal${path}`
+        // @ts-ignore
+        res = await fetcher.fetch(url, init)
+    } else {
+        // Standard Fetch (Internet)
+        const f = (fetcher || fetch) as typeof fetch
+        const url = `${this.config.authUrl}${path}`
+        res = await f(url, init as any)
+    }
+
     if (!res.ok) {
         throw new Error(`Tobira API Error: ${res.status} ${await res.text()}`)
     }
-    return await res.json()
+    return await res.json() as any
   }
 
   /**

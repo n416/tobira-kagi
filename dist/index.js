@@ -98,13 +98,20 @@ class Kagi {
         };
     }
     async callTobira(path, init) {
-        const fetcher = this.config.fetcher || fetch;
-        // Service Binding用のダミーURL構築
-        const url = (typeof fetcher.fetch === 'function')
-            ? `http://tobira-internal${path}`
-            : `${this.config.authUrl}${path}`;
-        // @ts-ignore
-        const res = await fetcher.fetch(url, init);
+        const fetcher = this.config.fetcher;
+        let res;
+        if (fetcher && typeof fetcher.fetch === 'function') {
+            // Service Binding (Worker to Worker)
+            const url = `http://tobira-internal${path}`;
+            // @ts-ignore
+            res = await fetcher.fetch(url, init);
+        }
+        else {
+            // Standard Fetch (Internet)
+            const f = (fetcher || fetch);
+            const url = `${this.config.authUrl}${path}`;
+            res = await f(url, init);
+        }
         if (!res.ok) {
             throw new Error(`Tobira API Error: ${res.status} ${await res.text()}`);
         }
