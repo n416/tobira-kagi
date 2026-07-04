@@ -16,7 +16,17 @@ class Kagi {
         app.get('/login', (c) => {
             const callbackPath = c.req.path.replace(/\/login$/, '/callback');
             const appUrl = new URL(c.req.url).origin;
-            const redirectUrl = `${appUrl}${callbackPath}`;
+            // ログインCSRF対策: ワンタイムのstateをCookieに保存し、
+            // コールバックURLのクエリに載せてTobiraを往復させる
+            const state = crypto.randomUUID();
+            (0, cookie_1.setCookie)(c, 'tobira_state', state, {
+                httpOnly: true,
+                secure: true,
+                path: '/',
+                sameSite: 'Lax',
+                maxAge: 600,
+            });
+            const redirectUrl = `${appUrl}${callbackPath}?state=${state}`;
             const loginUrl = `${this.config.authUrl}/login?redirect_to=${encodeURIComponent(redirectUrl)}`;
             return c.redirect(loginUrl);
         });
@@ -24,6 +34,14 @@ class Kagi {
             const code = c.req.query('code');
             if (!code)
                 return c.text('Missing code', 400);
+            // stateがCookieの値と一致しない場合は、攻撃者が用意したコードの
+            // 注入(ログインCSRF)の可能性があるため拒否する
+            const state = c.req.query('state');
+            const cookieState = (0, cookie_1.getCookie)(c, 'tobira_state');
+            (0, cookie_1.deleteCookie)(c, 'tobira_state', { path: '/' });
+            if (!state || !cookieState || state !== cookieState) {
+                return c.text('Invalid state', 400);
+            }
             try {
                 const tokens = await this.callTobira('/api/token', {
                     method: 'POST',
